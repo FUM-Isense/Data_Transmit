@@ -1,44 +1,49 @@
-import cv2
-import socket
-import pickle
-import struct
+import cv2,imutils
+import zmq
+import base64,time
+import queue,threading
+# www.pyshine.com
+context = zmq.Context()
+server_socket = context.socket(zmq.PUB)
+server_socket.bind("tcp://192.168.1.105:5555")
+camera = True
+if camera == True:
+	vid = cv2.VideoCapture(0)
+else:
+	vid = cv2.VideoCapture('videos/mario.mp4')
 
-# Create a socket object
-server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+def pyshine_video_queue(vid):
+	
+	frame = [0]
+	q = queue.Queue(maxsize=10)
+	def getAudio():
+		while (vid.isOpened()):
+			try:
+				img, frame = vid.read()
+				frame = imutils.resize(frame,width=640)
+				q.put(frame)
+			except:
+				pass
+			
+	thread = threading.Thread(target=getAudio, args=())
+	thread.start()
+	return q
 
-# Get the IP address of the Raspberry Pi
-host_name = socket.gethostname()
-host_ip = socket.gethostbyname(host_name)
-print("Host IP:", host_ip)
-
-# Set the port number and bind the socket to it
-port = 12345
-socket_address = (host_ip, port)
-server_socket.bind(socket_address)
-
-# Listen for incoming connections
-server_socket.listen(5)
-print("Listening for incoming connections...")
+q = pyshine_video_queue(vid)
 
 while True:
-    # Accept a client connection
-    client_socket, addr = server_socket.accept()
-    print('Got connection from', addr)
+	frame = q.get()
+	encoded, buffer = cv2.imencode('.jpg', frame,[cv2.IMWRITE_JPEG_QUALITY,80])
+	data = base64.b64encode(buffer)
+	print(server_socket.send(data))
+	cv2.imshow("server image", frame)
+	key = cv2.waitKey(1) & 0xFF
+	time.sleep(0.01)
+	if key  == ord('q'):
+		break
 
-    # Open the video capture device (webcam)
-    cap = cv2.VideoCapture(0)
+vid.release()
+cv2.destroyAllWindows()
+  
+		
 
-    while True:
-        # Read a frame from the video capture device
-        ret, frame = cap.read()
-
-        # Serialize the frame using pickle
-        data = pickle.dumps(frame)
-
-        # Pack the serialized frame and send it over the network
-        message_size = struct.pack("L", len(data))
-        client_socket.sendall(message_size + data)
-
-    # Release the video capture device and close the client socket
-    cap.release()
-    client_socket.close()

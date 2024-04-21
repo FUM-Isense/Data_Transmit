@@ -1,44 +1,39 @@
 import cv2
-import socket
-import pickle
-import struct
-
-# Create a socket object
-client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-# Set the IP address and port number of the Raspberry Pi
-host_ip = 'RASPBERRY_PI_IP_ADDRESS'  # Replace with the actual IP address
-port = 12345
-
-# Connect to the server
-client_socket.connect((host_ip, port))
-
-# Receive and display the video frames
-data = b""
-payload_size = struct.calcsize("L")
-
+import zmq
+import base64
+import numpy as np,time
+import pyshine as ps
+# www.pyshine.com
+context = zmq.Context()
+client_socket = context.socket(zmq.SUB)
+client_socket.connect("tcp://192.168.1.105:5555")
+client_socket.setsockopt_string(zmq.SUBSCRIBE,optval='')
+fps=0
+st=0
+frames_to_count=20
+cnt=0
 while True:
-    # Receive the message header containing the frame size
-    while len(data) < payload_size:
-        data += client_socket.recv(4096)
+    if cnt == frames_to_count:
+        try:
 
-    # Unpack the frame size from the message header
-    packed_msg_size = data[:payload_size]
-    data = data[payload_size:]
-    msg_size = struct.unpack("L", packed_msg_size)[0]
+            fps = round(frames_to_count/(time.time()-st))
+            st = time.time()
+            cnt=0
+        except:
+            pass
+    cnt+=1
+    frame = client_socket.recv()
+    img = base64.b64decode(frame)
+    npimg = np.fromstring(img, dtype=np.uint8)
+    source = cv2.imdecode(npimg, 1)
+    text  =  'FPS: '+str(fps)
+    source = ps.putBText(source,text,text_offset_x=20,text_offset_y=30,background_RGB=(10,20,222))
+    time.sleep(0.01)
+    cv2.imshow("client image", source)
+    key = cv2.waitKey(1) & 0xFF
+    if key  == ord('q'):
+        break
+cv2.destroyAllWindows()
 
-    # Receive the serialized frame data
-    while len(data) < msg_size:
-        data += client_socket.recv(4096)
 
-    # Deserialize the frame data using pickle
-    frame_data = data[:msg_size]
-    data = data[msg_size:]
-    frame = pickle.loads(frame_data)
 
-    # Display the received frame
-    cv2.imshow('Received Frame', frame)
-    cv2.waitKey(1)
-
-# Close the client socket
-client_socket.close()
